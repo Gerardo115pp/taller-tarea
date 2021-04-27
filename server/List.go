@@ -9,8 +9,13 @@ const DEBUG = false
 const SEPARATOR = "<,>"
 
 type Content interface {
+	getId() uint32
+	compareString(string) bool
 	toString() string
-	getIdentifier() string
+	toRstring() string
+	load(string) error
+	toPartialJson() string
+	toJson() string
 }
 
 type ConditionalFunc func(Content) bool
@@ -54,11 +59,7 @@ func (self *List) exists(content string) Content {
 		var current_node *ListNode = self.root
 		for current_node != nil {
 
-			if DEBUG {
-				fmt.Printf("%s == %s\n", current_node.NodeContent.toString(), content)
-			}
-
-			if current_node.NodeContent.toString() == content {
+			if current_node.NodeContent.(Content).compareString(content) {
 				return current_node.NodeContent
 			}
 			current_node = current_node.Next
@@ -169,7 +170,7 @@ func (self *List) pop() Content {
 
 func (self *List) remove(target string) {
 	var indirect **ListNode = &self.root
-	for (*indirect) != nil && (*indirect).NodeContent.toString() != target {
+	for (*indirect) != nil && !(*indirect).NodeContent.compareString(target) {
 		indirect = &((*indirect).Next)
 	}
 	if ((*indirect).Next) != nil {

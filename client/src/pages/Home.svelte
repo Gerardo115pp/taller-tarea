@@ -9,22 +9,28 @@
     let show_management_modal = false;
 
     const updateType = type_label => {
-        const headers = new Headers();
-        headers.set("X-sk", String(params.session));
-
-        const request = new Request(`${server_name}/type?type_name=${type_label}`, {method: "GET", headers: headers});
-        fetch(request,)
-            .then(promise => {
-                if (promise.status == 200) {
-                    promise.json().then( response => {
-                        type_name = type_label;
-                        type_data = response;
-                        show_management_modal = true;
-                    });
-                }
-            });
+        if (type_name != type_label) {
+            const headers = new Headers();
+            headers.set("X-sk", String(params.session));
+    
+            const request = new Request(`${server_name}/type?type_name=${type_label}`, {method: "GET", headers: headers});
+            fetch(request,)
+                .then(promise => {
+                    if (promise.status == 200) {
+                        promise.json().then( response => {
+                            type_name = type_label;
+                            type_data = response;
+                            show_management_modal = true;
+                        });
+                    }
+                });
+        } else {
+            show_management_modal = true;
+        }
     }
 
+
+    const closeModal = () =>  show_management_modal = false;
 </script>
 
 <style>
@@ -65,7 +71,7 @@
 
 <div id="home-page-component">
     {#if show_management_modal}
-        <DataManagementModal getSessionKey={() => params.session} {type_data} {type_name}/>
+        <DataManagementModal onClose={closeModal} getSessionKey={() => params.session} {type_data} {type_name}/>
     {/if}
     <header id="home-header">
         <span>User&Services</span>
@@ -73,11 +79,11 @@
     <div id="home-hub">
         <div class="options-level-container">
             <Option onClick={updateType} label="users"/>
+            <Option onClick={updateType} label="clients"/>
             <Option label="services"/>
-            <Option label="cars"/>
         </div>
         <div class="options-level-container">
-            <Option label="clients"/>
+            <Option label="cars"/>
             <Option label="warehouse"/>
         </div>
     </div>

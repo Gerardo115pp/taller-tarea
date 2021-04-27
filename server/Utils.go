@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -8,6 +9,11 @@ import (
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+func logFatal(err error) {
+	fmt.Println(err.Error())
+	os.Exit(1)
 }
 
 func stringToInt(s string) int {

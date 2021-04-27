@@ -5,6 +5,7 @@
     import Button from './Button.svelte';
     import Select from './Select.svelte';
     import Input from './Input.svelte';
+    export let onClose;
     export let getSessionKey = () => {};
     export let type_data = {};
     export let type_name = "Nothing at all";
@@ -89,6 +90,12 @@
         return fields_content;
     }
 
+    const triggerCloseCallback = e => {
+        if (onClose != undefined && e.target === e.currentTarget) {
+            onClose();
+        }
+    }
+
     const submitForm = () => {
         if(checkFormCompletness()) {
             const fields_content= getFormContent();
@@ -140,7 +147,7 @@
         fetch(`${server_name}/search?type_name=${type_name}&value=${search_value}`, {method: "GET", headers: headers})
         .then(promise => {
             if (promise.ok) {
-                promise.json().then(setItemSelected);
+                promise.json().then(response => type_content = response);
             } else if (promise.status == 404) {
                 console.warn(`no ${search_value} found in ${type_name}`);
             }
@@ -207,6 +214,7 @@
         height: 100vh;
         width: 100vw;
         justify-content: center;
+        z-index: 3;
     }
 
     #data-management-modal {
@@ -295,7 +303,7 @@
 
 </style>
 
-<div id="data-management-modal-background">
+<div on:click={triggerCloseCallback} id="data-management-modal-background">
     <div id="data-management-modal">
         <SearchBar name={type_name} searchCallback={searchItem}/>
         <div id="dmm-controls">

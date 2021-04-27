@@ -40,6 +40,24 @@
                 ]
             }
         ]
+    },
+    "clients": {
+        "name": "clients",
+        "allow-change-from": 1,
+        "fields": [
+            {
+                "field-name": "name",
+                "text": "text"
+            },
+            {
+                "field-name": "address",
+                "type": "text"
+            },
+            {
+                "field-name": "phone",
+                "type": "text"
+            }
+        ]
     }
 }
 

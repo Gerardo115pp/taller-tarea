@@ -24,8 +24,16 @@ type User struct {
 	group    UserGroup
 }
 
-func (self User) getIdentifier() string {
-	return fmt.Sprintf("%d", self.id)
+func (self User) compare(other Content) bool {
+	return self.id == other.(*User).id
+}
+
+func (self User) compareString(other_username string) bool {
+	return self.username == other_username
+}
+
+func (self *User) getId() uint32 {
+	return self.id
 }
 
 func (self *User) getNormalizedName() string {

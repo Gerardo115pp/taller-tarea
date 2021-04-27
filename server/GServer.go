@@ -48,7 +48,16 @@ func (self *Server) createUser(r *http.Request) *User {
 	if middlename != "" || lastname != "" {
 		name = composeName(name, middlename, lastname)
 	}
-	return createUser(self.state.getNewUserId(), username, name, password, address, phone, group)
+	return createUser(self.state.getNewItemId(USERS_STATE), username, name, password, address, phone, group)
+}
+
+func (self *Server) createClient(request *http.Request) *Client {
+	var new_client *Client = new(Client)
+	new_client.id = uint32(self.state.getNewItemId(CLIENTS_STATE))
+	new_client.name = request.FormValue("name")
+	new_client.address = request.FormValue("address")
+	new_client.phone = request.FormValue("phone")
+	return new_client
 }
 
 func (self *Server) createResponse(response string) []byte {
@@ -100,7 +109,7 @@ func (self *Server) getRequestUser(request *http.Request) (*User, error) {
 func (self *Server) logUser(response http.ResponseWriter, request *http.Request) {
 	if request.Method == http.MethodGet {
 		var username string = request.URL.Query().Get("username")
-		if u := self.state.getUserByUsername(username); u != nil {
+		if u := self.state.getItemByToString(username, USERS_STATE).(*User); u != nil {
 			var raw_password string = request.URL.Query().Get("password")
 			var password uint64 = shaAsInt64(raw_password)
 			if password == u.password {
@@ -143,6 +152,117 @@ func (self *Server) loadTypesData() error {
 	return err
 }
 
+func (self *Server) handleClients(response http.ResponseWriter, request *http.Request) {
+
+	switch request.Method {
+	case http.MethodGet:
+		var target string = request.URL.Query().Get("id")
+		fmt.Printf("GET request for user %s...", target)
+		if target == "*" {
+			// request for all clients
+			response.WriteHeader(200)
+			response.Write([]byte(self.state.getItemsAsJson(CLIENTS_STATE)))
+		} else {
+			// request for a single client, will return all its data
+			var string_id string = request.URL.Query().Get("id")
+			if string_id != "" {
+				var id uint32 = uint32(stringToInt(string_id))
+				var client Content = self.state.getItemById(id, CLIENTS_STATE)
+				if client != nil {
+					fmt.Println("Succes!")
+					response.WriteHeader(200)
+					response.Write([]byte(client.toJson()))
+				} else {
+					// client doesnt exists
+					fmt.Println("Failed: user doesnt exists")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+				}
+			} else {
+				response.WriteHeader(406)
+				response.Write(self.bad_response)
+			}
+		}
+	case http.MethodPost:
+		// Registering Client
+		var new_client *Client = self.createClient(request)
+		fmt.Printf("POST request for client %s...", new_client.name)
+		if new_client.name != "" {
+			self.state.addItemToState(new_client, CLIENTS_STATE)
+			if err := self.state.saveStateSlice(CLIENTS_STATE); err != nil {
+				logFatal(err)
+			}
+			fmt.Println("Success!")
+			response.WriteHeader(200)
+			response.Write(self.ok)
+		} else {
+			fmt.Println("Failed: name for client cannot be empty")
+			response.WriteHeader(406)
+			response.Write(self.bad_response)
+		}
+	case http.MethodPatch:
+		// UPDATE: restricted
+		fmt.Print("UPDATE request for client with id ")
+		if self.isUserAdmin(request) {
+			var string_id string = request.FormValue("id")
+			fmt.Printf("'%s'...", string_id)
+			if string_id != "" {
+				var target_client *Client = self.state.getItemById(uint32(stringToInt(string_id)), CLIENTS_STATE).(*Client)
+				if target_client == nil {
+					fmt.Println("Failed: client wasnt found")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+					return
+				}
+				self.updateClient(target_client, request)
+				self.state.saveStateSlice(CLIENTS_STATE)
+				fmt.Println("Succes!")
+				response.WriteHeader(200)
+				response.Write(self.ok)
+			} else {
+				fmt.Println("Failed: key is not vaild")
+				response.WriteHeader(406)
+				response.Write(self.bad_response)
+			}
+		} else {
+			fmt.Println("Failed: User is not authorized")
+			response.WriteHeader(401)
+			response.Write(self.bad_response)
+		}
+	case http.MethodDelete:
+		// DELETE: restricted
+		fmt.Print("DELETE request for client ")
+		if self.isUserAdmin(request) {
+			var string_id string = request.FormValue("id")
+			fmt.Printf("with id '%s'...", string_id)
+			if string_id != "" {
+				var id uint32 = uint32(stringToInt(string_id))
+				err := self.state.deleteItemById(id, CLIENTS_STATE)
+				if err != nil {
+					fmt.Println("Failed: client wasnt found")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+					return
+				}
+				self.state.saveStateSlice(CLIENTS_STATE)
+				fmt.Print("Success!")
+				response.WriteHeader(200)
+				response.Write(self.ok)
+			}
+		} else {
+			fmt.Println("Failed: user is not authorized.")
+			response.WriteHeader(401)
+			response.Write(self.bad_response)
+		}
+	case http.MethodOptions:
+		response.WriteHeader(200)
+		_, _ = response.Write(self.ok)
+	default:
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = response.Write(self.bad_response)
+	}
+}
+
 func (self *Server) handleUsers(response http.ResponseWriter, request *http.Request) {
 
 	switch request.Method {
@@ -150,10 +270,10 @@ func (self *Server) handleUsers(response http.ResponseWriter, request *http.Requ
 		var target string = request.URL.Query().Get("id")
 		if target == "*" {
 			response.WriteHeader(200)
-			_, _ = response.Write([]byte(self.state.getUsersAsJson()))
+			_, _ = response.Write([]byte(self.state.getItemsAsJson(USERS_STATE)))
 		} else {
 			target_id := stringToInt(target)
-			target_user := self.state.getUserById(uint32(target_id))
+			target_user := self.state.getItemById(uint32(target_id), USERS_STATE).(*User)
 			if target_user != nil {
 				response.WriteHeader(http.StatusOK)
 				_, _ = response.Write([]byte(target_user.toJson()))
@@ -191,10 +311,10 @@ func (self *Server) handleUsers(response http.ResponseWriter, request *http.Requ
 		// verifying user permissions
 		if self.isUserAdmin(request) {
 			var id uint32 = uint32(stringToInt(request.FormValue("id")))
-			var user *User = self.state.getUserById(id)
+			var user *User = self.state.getItemById(id, USERS_STATE).(*User)
 			fmt.Printf("PATCH request for user %s\n", user.username)
 			self.updateUser(user, request)
-			self.state.saveUsers()
+			self.state.saveStateSlice(USERS_STATE)
 			response.WriteHeader(200)
 			_, _ = response.Write(self.ok)
 		} else {
@@ -206,15 +326,14 @@ func (self *Server) handleUsers(response http.ResponseWriter, request *http.Requ
 		if self.isUserAdmin(request) {
 			var target_id uint32 = uint32(stringToInt(request.FormValue("id")))
 			fmt.Printf("DELETE request for %d\n", target_id)
-			if self.state.deleteUserById(target_id) == nil {
-				self.state.saveUsers()
+			if self.state.deleteItemById(target_id, USERS_STATE) == nil {
+				self.state.saveStateSlice(USERS_STATE)
 				response.WriteHeader(200)
 				response.Write(self.ok)
 			} else {
 				response.WriteHeader(406) // Not acceptable
 				response.Write(self.composeResponse("invalid id"))
 			}
-
 		}
 	case http.MethodOptions:
 		response.WriteHeader(200)
@@ -284,19 +403,26 @@ func (self *Server) searchItem(response http.ResponseWriter, request *http.Reque
 	var search_type string = request.URL.Query().Get("type_name")
 	var search_value string = request.URL.Query().Get("value")
 	if search_type != "" && search_value != "" {
+		var target string
 		switch search_type {
 		case "users":
-			var user *User = self.state.getUserByUsername(search_value)
-			if user == nil {
-				response.WriteHeader(404)
-				response.Write(self.bad_response)
-			}
-			response.WriteHeader(200)
-			response.Write([]byte(user.toJson()))
+			target = self.state.getItemsByToStringPrefix(search_value, USERS_STATE)
+		case "clients":
+			target = self.state.getItemsByToStringPrefix(search_value, CLIENTS_STATE)
 		default:
+			fmt.Println("Invalid type ", search_type)
 			response.WriteHeader(501)
 			response.Write(self.bad_response)
+			return
 		}
+		if target == "[]" {
+			fmt.Println("Not Found")
+			response.WriteHeader(404)
+		} else {
+			fmt.Println("Success")
+			response.WriteHeader(200)
+		}
+		response.Write([]byte(target))
 	} else {
 		fmt.Println("Not enought arguments for search request")
 		response.WriteHeader(400)
@@ -307,7 +433,7 @@ func (self *Server) searchItem(response http.ResponseWriter, request *http.Reque
 func (self *Server) registerUser(response http.ResponseWriter, request *http.Request) {
 	var new_user *User = self.createUser(request)
 	fmt.Printf("new user: %s\n", new_user)
-	self.state.addUser(new_user)
+	self.state.addItemToState(new_user, "users")
 	response.WriteHeader(http.StatusOK)
 	_, _ = response.Write(self.ok)
 }
@@ -335,6 +461,19 @@ func (self *Server) updateUser(user *User, request *http.Request) {
 	return
 }
 
+func (self *Server) updateClient(client *Client, request *http.Request) {
+	var fake_client *Client = self.createClient(request)
+	if fake_client.name != client.name && fake_client.name != "" {
+		client.name = fake_client.name
+	}
+	if fake_client.address != client.address && fake_client.address != "" {
+		client.address = fake_client.address
+	}
+	if fake_client.phone != client.phone && fake_client.phone != "" {
+		client.phone = fake_client.phone
+	}
+}
+
 func (self *Server) verifyAuthentication(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(response http.ResponseWriter, r *http.Request) {
 		var session_key string = r.Header.Get("X-sk")
@@ -355,7 +494,10 @@ func (self *Server) run() {
 	}
 
 	fmt.Printf("Users loaded: %d\n", self.state.users.length)
+	fmt.Printf("Clients loaded: %d\n", self.state.clients.length)
+
 	http.HandleFunc("/users", self.enableCors(self.verifyAuthentication(self.handleUsers)))
+	http.HandleFunc("/clients", self.enableCors(self.verifyAuthentication(self.handleClients)))
 	http.HandleFunc("/login", self.enableCors(self.logUser))
 	http.HandleFunc("/type", self.enableCors(self.verifyAuthentication(self.handleType)))
 	http.HandleFunc("/search", self.enableCors(self.verifyAuthentication(self.searchItem)))
