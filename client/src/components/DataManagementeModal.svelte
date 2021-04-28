@@ -322,7 +322,7 @@
                         onBlur={() => is_form_ready = checkFormCompletness()}
                     />
                 {:else}
-                    <Select options={tf.options} name={tf['field-name']}/>
+                    <Select options={tf.options} name={tf['field-name']} />
                 {/if} 
             {/each}
         </div>

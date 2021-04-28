@@ -83,7 +83,7 @@
             <Option label="services"/>
         </div>
         <div class="options-level-container">
-            <Option label="cars"/>
+            <Option onClick={updateType} label="vehicles"/>
             <Option label="warehouse"/>
         </div>
     </div>

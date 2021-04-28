@@ -10,15 +10,18 @@ const SERVER_DATA = "./operational_data"
 
 const USERS_STATE = "users"
 const CLIENTS_STATE = "clients"
+const VEHICLES_STATE = "vehicles"
 
 type State struct {
-	users   *List
-	clients *List
+	users    *List
+	clients  *List
+	vehicles *List
 }
 
 func (self *State) init() {
 	self.users = new(List)
 	self.clients = new(List)
+	self.vehicles = new(List)
 }
 
 func (self *State) addItemToState(item Content, type_name string) {
@@ -42,7 +45,7 @@ func (self *State) deleteItemById(id uint32, type_name string) error {
 		return err
 	}
 	if target == nil {
-		return fmt.Errorf("User %d doesnt exists", id)
+		return fmt.Errorf("%s %d doesnt exists", type_name, id)
 	}
 	target_slice.remove(target.toString())
 	return nil
@@ -58,6 +61,8 @@ func (self *State) getTypeByName(type_name string) Content {
 		return new(User)
 	case CLIENTS_STATE:
 		return new(Client)
+	case VEHICLES_STATE:
+		return new(Vehicle)
 	default:
 		logFatal(fmt.Errorf("no type for type name: %s", type_name))
 		return nil
@@ -70,9 +75,25 @@ func (self *State) getStateSliceByName(slice_name string) (*List, error) {
 		return self.users, nil
 	case CLIENTS_STATE:
 		return self.clients, nil
+	case VEHICLES_STATE:
+		return self.vehicles, nil
 	default:
 		return nil, fmt.Errorf("No slice for name %s", slice_name)
 	}
+}
+
+func (self *State) getItemsAsOptions(type_name string) string {
+	var target_slice *List
+	var items_options []string
+	target_slice, err := self.getStateSliceByName(type_name)
+	if err != nil {
+		fmt.Printf("Error on getITemsAsOptions: %s\n", err.Error())
+		return "[]"
+	}
+	items_options = target_slice.mapFunc(func(c *ListNode) string {
+		return fmt.Sprintf("{\"name\": \"%s\", \"value\": %d}", c.NodeContent.toString(), c.NodeContent.getId())
+	})
+	return strings.Join(items_options, ",")
 }
 
 func (self *State) getNewItemId(type_name string) int {
@@ -160,6 +181,9 @@ func (self *State) loadState() error {
 		if err = self.loadStateSlice(CLIENTS_STATE); err != nil {
 			return err
 		}
+		if err = self.loadStateSlice(VEHICLES_STATE); err != nil {
+			return err
+		}
 		return err
 	} else {
 		return fmt.Errorf("'%s' no such file or directory", SERVER_DATA)
@@ -187,7 +211,7 @@ func (self *State) loadStateSlice(type_name string) error {
 		return err
 	} else {
 		fmt.Printf("No such file or directory: %s\n", load_path)
-		return fmt.Errorf("An error ocurred while loading users: no such file or directory %s", load_path)
+		return nil
 	}
 }
 

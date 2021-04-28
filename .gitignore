@@ -1,6 +1,7 @@
 *.mp4
 *.zip
 /**/node_modules/
+server/operational_data/*.txt
 /**/Testing/
 *.py
 *.ipynb

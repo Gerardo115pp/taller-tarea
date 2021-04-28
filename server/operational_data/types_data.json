@@ -58,6 +58,35 @@
                 "type": "text"
             }
         ]
+    },
+    "vehicles": {
+        "name": "vehicles",
+        "allow-change-from": 1,
+        "fields": [
+            {
+                "field-name": "plates",
+                "type": "text"
+            },
+            {
+                "field-name": "brand",
+                "type": "text"
+            },
+            {
+                "field-name": "model",
+                "type": "text"
+            },
+            {
+                "field-name": "release",
+                "type": "text"
+            },
+            {
+                "field-name": "client",
+                "type": "select",
+                "options": [
+                    "@clients@"
+                ]
+            }
+        ]
     }
 }
 

@@ -94,6 +94,16 @@ func (self *List) get(position int) Content {
 	return current_node.NodeContent
 }
 
+func (self *List) mapFunc(callback func(*ListNode) string) []string {
+	var current_node *ListNode = self.root
+	var map_results []string
+	for current_node != nil {
+		map_results = append(map_results, callback(current_node))
+		current_node = current_node.Next
+	}
+	return map_results
+}
+
 func (self *List) save(file_name string) bool {
 	var serialized_string string
 	var current_node *ListNode = self.root

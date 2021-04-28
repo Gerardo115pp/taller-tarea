@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 )
 
 const TYPESDATA = "./operational_data/types_data.json"
@@ -58,6 +60,17 @@ func (self *Server) createClient(request *http.Request) *Client {
 	new_client.address = request.FormValue("address")
 	new_client.phone = request.FormValue("phone")
 	return new_client
+}
+
+func (self *Server) createVehicle(request *http.Request) *Vehicle {
+	var new_vehicle *Vehicle = new(Vehicle)
+	new_vehicle.id = uint32(self.state.getNewItemId(VEHICLES_STATE))
+	new_vehicle.plates = request.FormValue("plates")
+	new_vehicle.model = request.FormValue("model")
+	new_vehicle.brand = request.FormValue("brand")
+	new_vehicle.release = request.FormValue("release")
+	new_vehicle.client = uint32(stringToInt(request.FormValue("client")))
+	return new_vehicle
 }
 
 func (self *Server) createResponse(response string) []byte {
@@ -157,7 +170,7 @@ func (self *Server) handleClients(response http.ResponseWriter, request *http.Re
 	switch request.Method {
 	case http.MethodGet:
 		var target string = request.URL.Query().Get("id")
-		fmt.Printf("GET request for user %s...", target)
+		fmt.Printf("GET request for client %s...", target)
 		if target == "*" {
 			// request for all clients
 			response.WriteHeader(200)
@@ -245,6 +258,110 @@ func (self *Server) handleClients(response http.ResponseWriter, request *http.Re
 					return
 				}
 				self.state.saveStateSlice(CLIENTS_STATE)
+				fmt.Print("Success!")
+				response.WriteHeader(200)
+				response.Write(self.ok)
+			}
+		} else {
+			fmt.Println("Failed: user is not authorized.")
+			response.WriteHeader(401)
+			response.Write(self.bad_response)
+		}
+	case http.MethodOptions:
+		response.WriteHeader(200)
+		_, _ = response.Write(self.ok)
+	default:
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = response.Write(self.bad_response)
+	}
+}
+
+func (self *Server) handleVehicles(response http.ResponseWriter, request *http.Request) {
+
+	switch request.Method {
+	case http.MethodGet:
+		var target string = request.URL.Query().Get("id")
+		fmt.Printf("GET request for vehicle %s...", target)
+		if target == "*" {
+			// request for all clients
+			response.WriteHeader(200)
+			response.Write([]byte(self.state.getItemsAsJson(VEHICLES_STATE)))
+		} else {
+			// request for a single client, will return all its data
+			if target != "" {
+				var id uint32 = uint32(stringToInt(target))
+				var vehicle Content = self.state.getItemById(id, VEHICLES_STATE)
+				if vehicle != nil {
+					fmt.Println("Succes!")
+					response.WriteHeader(200)
+					response.Write([]byte(vehicle.toJson()))
+				} else {
+					// client doesnt exists
+					fmt.Println("Failed: user doesnt exists")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+				}
+			} else {
+				response.WriteHeader(406)
+				response.Write(self.bad_response)
+			}
+		}
+	case http.MethodPost:
+		// Registering Client
+		var new_vehicle *Vehicle = self.createVehicle(request)
+		fmt.Printf("POST request for vehicle %s...", new_vehicle.plates)
+		if new_vehicle.plates != "" {
+			self.state.addItemToState(new_vehicle, VEHICLES_STATE)
+			if err := self.state.saveStateSlice(VEHICLES_STATE); err != nil {
+				logFatal(err)
+			}
+			fmt.Println("Success!")
+			response.WriteHeader(200)
+			response.Write(self.ok)
+		} else {
+			fmt.Println("Failed: plates for vehicle cannot be empty")
+			response.WriteHeader(406)
+			response.Write(self.bad_response)
+		}
+	case http.MethodPatch:
+		// UPDATE: restricted
+		fmt.Print("UPDATE request for vehicle with id ")
+		var string_id string = request.FormValue("id")
+		fmt.Printf("'%s'...", string_id)
+		if string_id != "" {
+			var target_vehicle *Vehicle = self.state.getItemById(uint32(stringToInt(string_id)), VEHICLES_STATE).(*Vehicle)
+			if target_vehicle == nil {
+				fmt.Println("Failed: vehicle wasnt found")
+				response.WriteHeader(404)
+				response.Write(self.bad_response)
+				return
+			}
+			self.updateVehicle(target_vehicle, request)
+			self.state.saveStateSlice(VEHICLES_STATE)
+			fmt.Println("Succes!")
+			response.WriteHeader(200)
+			response.Write(self.ok)
+		} else {
+			fmt.Println("Failed: key is not vaild")
+			response.WriteHeader(406)
+			response.Write(self.bad_response)
+		}
+	case http.MethodDelete:
+		// DELETE: restricted
+		fmt.Print("DELETE request for vehicle ")
+		if self.isUserAdmin(request) {
+			var string_id string = request.FormValue("id")
+			fmt.Printf("with id '%s'...", string_id)
+			if string_id != "" {
+				var id uint32 = uint32(stringToInt(string_id))
+				err := self.state.deleteItemById(id, VEHICLES_STATE)
+				if err != nil {
+					fmt.Println("Failed: vehicle wasnt found")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+					return
+				}
+				self.state.saveStateSlice(VEHICLES_STATE)
 				fmt.Print("Success!")
 				response.WriteHeader(200)
 				response.Write(self.ok)
@@ -354,6 +471,7 @@ func (self *Server) handleType(response http.ResponseWriter, request *http.Reque
 		fmt.Println(request.URL.String())
 		if type_data, ok := self.types_data[type_name]; ok {
 			json_data, _ := json.Marshal(type_data)
+			json_data = self.processTypeData(json_data)
 			response.WriteHeader(http.StatusOK)
 			response.Header().Set("Content-Type", "application/json")
 			_, _ = response.Write(json_data)
@@ -375,6 +493,28 @@ func (self Server) isUserAdmin(request *http.Request) bool {
 		return false
 	}
 	return user.group == 0
+}
+
+func (self *Server) processTypeData(data []byte) []byte {
+	var string_data string = string(data)
+	regex, err := regexp.Compile("@[a-z]+@")
+	if err != nil {
+		logFatal(err)
+	}
+	var processable_string string = regex.FindString(string_data)
+	if processable_string != "" {
+		processable_string = strings.ReplaceAll(processable_string, "@", "")
+
+		var options string = "[]"
+		switch processable_string {
+		case "clients":
+			options = self.state.getItemsAsOptions(CLIENTS_STATE)
+		}
+		string_data = strings.Replace(string_data, fmt.Sprintf("\"@%s@\"", processable_string), options, 1)
+	}
+	fmt.Println(string_data)
+	return []byte(string_data)
+
 }
 
 func (self *Server) setBadResponse(response http.ResponseWriter, r *http.Request) {
@@ -474,6 +614,25 @@ func (self *Server) updateClient(client *Client, request *http.Request) {
 	}
 }
 
+func (self *Server) updateVehicle(vehicle *Vehicle, request *http.Request) {
+	var fake_vehicle *Vehicle = self.createVehicle(request)
+	if fake_vehicle.plates != vehicle.plates && fake_vehicle.plates != "" {
+		vehicle.plates = fake_vehicle.plates
+	}
+	if fake_vehicle.model != vehicle.model && fake_vehicle.model != "" {
+		vehicle.model = fake_vehicle.model
+	}
+	if fake_vehicle.brand != vehicle.brand && fake_vehicle.brand != "" {
+		vehicle.brand = fake_vehicle.brand
+	}
+	if fake_vehicle.release != vehicle.release && fake_vehicle.release != "" {
+		vehicle.release = fake_vehicle.release
+	}
+	if fake_vehicle.client >= 0 && fake_vehicle.client < uint32(self.state.clients.length) {
+		vehicle.client = fake_vehicle.client
+	}
+}
+
 func (self *Server) verifyAuthentication(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(response http.ResponseWriter, r *http.Request) {
 		var session_key string = r.Header.Get("X-sk")
@@ -498,6 +657,7 @@ func (self *Server) run() {
 
 	http.HandleFunc("/users", self.enableCors(self.verifyAuthentication(self.handleUsers)))
 	http.HandleFunc("/clients", self.enableCors(self.verifyAuthentication(self.handleClients)))
+	http.HandleFunc("/vehicles", self.enableCors(self.verifyAuthentication(self.handleVehicles)))
 	http.HandleFunc("/login", self.enableCors(self.logUser))
 	http.HandleFunc("/type", self.enableCors(self.verifyAuthentication(self.handleType)))
 	http.HandleFunc("/search", self.enableCors(self.verifyAuthentication(self.searchItem)))
