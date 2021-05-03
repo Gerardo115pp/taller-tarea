@@ -42,7 +42,7 @@ func (self *Refaxion) toRstring() string {
 }
 
 func (self *Refaxion) toPartialJson() string {
-	return fmt.Sprintf("{\"id\": %d, \"username\": \"%s\", \"name\": \"%s\"}", self.id, self.name, fmt.Sprintf("%s...", self.desc[:clamp(len(self.desc), 1, 15)]))
+	return fmt.Sprintf("{\"id\": %d, \"username\": \"%s\", \"name\": \"%d\"}", self.id, fmt.Sprintf("%s(%d)", self.name, self.stock), fmt.Sprintf("%s...", self.desc[:clamp(len(self.desc), 1, 15)]))
 }
 
 func (self *Refaxion) toJson() string {

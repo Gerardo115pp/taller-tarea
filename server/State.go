@@ -16,11 +16,16 @@ const REFAXIONS_STATE = "refaxions"
 const SERVICES_STATE = "services"
 
 type State struct {
-	users     *List
-	clients   *List
-	vehicles  *List
-	refaxions *List
-	services  *List
+	users             *List
+	last_user_id      int
+	clients           *List
+	last_client_id    int
+	vehicles          *List
+	last_vehicle_id   int
+	refaxions         *List
+	last_refaxions_id int
+	services          *List
+	last_service_id   int
 }
 
 func (self *State) init() {
@@ -29,6 +34,11 @@ func (self *State) init() {
 	self.vehicles = new(List)
 	self.refaxions = new(List)
 	self.services = new(List)
+	self.last_client_id = 0
+	self.last_refaxions_id = 0
+	self.last_service_id = 0
+	self.last_user_id = 0
+	self.last_vehicle_id = 0
 }
 
 func (self *State) addItemToState(item Content, type_name string) {
@@ -60,7 +70,9 @@ func (self *State) deleteItemById(id uint32, type_name string) error {
 
 func (self *State) deleteClientVehicleRelation(client *Client) {
 	self.vehicles = self.vehicles.filter(func(c Content) bool {
-		self.deleteServiceVehicleRelation(c.(*Vehicle))
+		if c.(*Vehicle).client == client.id {
+			self.deleteServiceVehicleRelation(c.(*Vehicle))
+		}
 		return c.(*Vehicle).client != client.id
 	})
 }
@@ -137,11 +149,25 @@ func (self *State) getItemsAsOptions(type_name string) string {
 }
 
 func (self *State) getNewItemId(type_name string) int {
-	item_state, err := self.getStateSliceByName(type_name)
-	if err != nil {
-		logFatal(err)
+	var new_id int = -1
+	switch type_name {
+	case USERS_STATE:
+		new_id = self.last_user_id
+		self.last_user_id++
+	case CLIENTS_STATE:
+		new_id = self.last_client_id
+		self.last_client_id++
+	case VEHICLES_STATE:
+		new_id = self.last_vehicle_id
+		self.last_vehicle_id++
+	case SERVICES_STATE:
+		new_id = self.last_service_id
+		self.last_service_id++
+	case REFAXIONS_STATE:
+		new_id = self.last_refaxions_id
+		self.last_refaxions_id++
 	}
-	return item_state.length
+	return new_id + 1
 }
 
 func (self *State) getItemById(target_id uint32, type_name string) (c Content) {
@@ -214,51 +240,61 @@ func (self *State) getItemsAsJson(type_name string) string {
 
 func (self *State) loadState() error {
 	var err error
+	var type_last_id int
 	if pathExists(SERVER_DATA) {
-		if err = self.loadStateSlice(USERS_STATE); err != nil {
+		if err, type_last_id = self.loadStateSlice(USERS_STATE); err != nil {
 			return err
 		}
-		if err = self.loadStateSlice(CLIENTS_STATE); err != nil {
+		self.last_user_id = type_last_id
+		if err, type_last_id = self.loadStateSlice(CLIENTS_STATE); err != nil {
 			return err
 		}
-		if err = self.loadStateSlice(VEHICLES_STATE); err != nil {
+		self.last_client_id = type_last_id
+		if err, type_last_id = self.loadStateSlice(VEHICLES_STATE); err != nil {
 			return err
 		}
-		if err = self.loadStateSlice(SERVICES_STATE); err != nil {
+		self.last_vehicle_id = type_last_id
+		if err, type_last_id = self.loadStateSlice(SERVICES_STATE); err != nil {
 			return err
 		}
-		if err = self.loadStateSlice(REFAXIONS_STATE); err != nil {
+		self.last_service_id = type_last_id
+		if err, type_last_id = self.loadStateSlice(REFAXIONS_STATE); err != nil {
 			return err
 		}
+		self.last_refaxions_id = type_last_id
 		return err
 	} else {
 		return fmt.Errorf("'%s' no such file or directory", SERVER_DATA)
 	}
 }
 
-func (self *State) loadStateSlice(type_name string) error {
+func (self *State) loadStateSlice(type_name string) (error, int) {
 	var load_path string = self.composeSaveFile(type_name)
 	if pathExists(load_path) {
+		var greatest_id uint32 = 0
 		type_state, err := self.getStateSliceByName(type_name)
 		if err != nil {
 			logFatal(err)
 		}
 		f, err := ioutil.ReadFile(load_path)
 		if err != nil {
-			return err
+			return err, -1
 		}
 		var new_item Content
 		for _, u := range strings.Split(string(f), "*") {
 			new_item = self.getTypeByName(type_name)
 			if new_item.load(u) == nil {
+				if new_item.getId() > greatest_id {
+					greatest_id = new_item.getId()
+				}
 				type_state.append(new_item)
 			}
 		}
 		fmt.Printf("%s loaded: %d\n", type_name, type_state.length)
-		return err
+		return err, int(greatest_id)
 	} else {
 		fmt.Printf("No such file or directory: %s\n", load_path)
-		return nil
+		return nil, -1
 	}
 }
 
