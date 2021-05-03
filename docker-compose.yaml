@@ -1,0 +1,11 @@
+version: "3.7"
+
+services: 
+    server:
+        image: defalt115/taller-server:stable
+        ports: 
+            - 5000:5000
+    app:
+        image: defalt115/taller-client:stable
+        ports: 
+            - 5002:5002

@@ -3,6 +3,7 @@
 /**/node_modules/
 server/operational_data/*.txt
 /**/Testing/
+client/build/
 *.py
 *.ipynb
 go.mod

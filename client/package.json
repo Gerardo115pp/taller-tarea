@@ -4,6 +4,7 @@
   "description": "proyecto de taller mecanico",
   "main": "index.js",
   "scripts": {
+    "build": "webpack --mode production",
     "start": "webpack serve --open --mode development"
   },
   "author": "gerardo.rodriguezs@alumnos.udg.mx",
