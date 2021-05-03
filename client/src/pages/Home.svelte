@@ -80,11 +80,11 @@
         <div class="options-level-container">
             <Option onClick={updateType} label="users"/>
             <Option onClick={updateType} label="clients"/>
-            <Option label="services"/>
+            <Option onClick={updateType} label="services"/>
         </div>
         <div class="options-level-container">
             <Option onClick={updateType} label="vehicles"/>
-            <Option label="warehouse"/>
+            <Option onClick={updateType} label="refaxions"/>
         </div>
     </div>
 </div>

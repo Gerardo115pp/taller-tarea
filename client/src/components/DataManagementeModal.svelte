@@ -20,8 +20,8 @@
         const headers = new Headers();
         headers.set("X-sk", getSessionKey())
         const promise = await fetch(`${server_name}/${type_name}?id=*`, {method: "GET", headers:headers});
-        const users = await promise.json()
-        type_content = users;
+        const response_content = await promise.json()
+        type_content = response_content;
     }
 
     onMount(updateItemsContent);
@@ -39,6 +39,7 @@
                 return false;
             }
         }
+
         return true;
     }
 
@@ -87,6 +88,21 @@
                 content: current_element.value
             });
         }
+
+        if(type_data.extras !== undefined) {
+            const { extras } = type_data;
+            extras.forEach(fe => {
+                current_element = document.getElementById(`ft-${fe.name}`);
+                if (current_element === null) {
+                    alert(`element 'fe-${fe.name}' was null`);
+                }
+                fe.value = parseInt(current_element.value);
+            });
+            fields_content.push({
+                name: "extras",
+                content: JSON.stringify(extras)
+            });
+        }
         return fields_content;
     }
 
@@ -99,6 +115,7 @@
     const submitForm = () => {
         if(checkFormCompletness()) {
             const fields_content= getFormContent();
+            console.log(fields_content);
             const headers = new Headers();
             headers.set("X-sk", getSessionKey())
             let forma = new FormData();
@@ -130,15 +147,25 @@
             if (k === "id") {
                 continue;
             }
+            if (k === "extras") {
+                for(let extra_field of item_data.extras) {
+                    current_element = document.getElementById(`ft-${extra_field.name}`)
+                    current_element.value = extra_field.value
+                    current_element.max = extra_field.value + current_element.max
+                }
+                continue;
+            }
             current_element = document.getElementById(`ft-${k}`);
             if (current_element === null) {
                 alert(`missing key '${k}'`);
                 continue;
             }
             current_element.value = item_data[k];
+        
         }
         item_id = item_data.id;
         is_form_ready = true;
+        
     }
 
     const searchItem = search_value => {
@@ -325,6 +352,21 @@
                     <Select options={tf.options} name={tf['field-name']} />
                 {/if} 
             {/each}
+            {#if type_data.extras !== undefined}
+            <!-- checking if the type includes extras, services should include it -->
+                {#each type_data.extras as tfe}
+                    <Input 
+                        input_id={`ft-${tfe['name']}`}
+                        input_type="number"
+                        input_label={`${tfe['name']}`}
+                        initial_value=0
+                        min={tfe.min}
+                        max={tfe.max}
+                        onKeypressed={waitForEnter}
+                        onBlur={() => is_form_ready = checkFormCompletness()}
+                    />
+                {/each}
+            {/if}
         </div>
         <div id="type-items-container">
             <div id="type-name">

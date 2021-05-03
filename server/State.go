@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"strings"
@@ -11,17 +12,23 @@ const SERVER_DATA = "./operational_data"
 const USERS_STATE = "users"
 const CLIENTS_STATE = "clients"
 const VEHICLES_STATE = "vehicles"
+const REFAXIONS_STATE = "refaxions"
+const SERVICES_STATE = "services"
 
 type State struct {
-	users    *List
-	clients  *List
-	vehicles *List
+	users     *List
+	clients   *List
+	vehicles  *List
+	refaxions *List
+	services  *List
 }
 
 func (self *State) init() {
 	self.users = new(List)
 	self.clients = new(List)
 	self.vehicles = new(List)
+	self.refaxions = new(List)
+	self.services = new(List)
 }
 
 func (self *State) addItemToState(item Content, type_name string) {
@@ -51,6 +58,19 @@ func (self *State) deleteItemById(id uint32, type_name string) error {
 	return nil
 }
 
+func (self *State) deleteClientVehicleRelation(client *Client) {
+	self.vehicles = self.vehicles.filter(func(c Content) bool {
+		self.deleteServiceVehicleRelation(c.(*Vehicle))
+		return c.(*Vehicle).client != client.id
+	})
+}
+
+func (self *State) deleteServiceVehicleRelation(vehicle *Vehicle) {
+	self.services = self.services.filter(func(c Content) bool {
+		return c.(*Service).vehicle != vehicle.id
+	})
+}
+
 func (self *State) composeSaveFile(type_name string) string {
 	return fmt.Sprintf("%s/%s.txt", SERVER_DATA, type_name)
 }
@@ -63,6 +83,11 @@ func (self *State) getTypeByName(type_name string) Content {
 		return new(Client)
 	case VEHICLES_STATE:
 		return new(Vehicle)
+	case REFAXIONS_STATE:
+		return new(Refaxion)
+	case SERVICES_STATE:
+		return new(Service)
+
 	default:
 		logFatal(fmt.Errorf("no type for type name: %s", type_name))
 		return nil
@@ -77,9 +102,24 @@ func (self *State) getStateSliceByName(slice_name string) (*List, error) {
 		return self.clients, nil
 	case VEHICLES_STATE:
 		return self.vehicles, nil
+	case REFAXIONS_STATE:
+		return self.refaxions, nil
+	case SERVICES_STATE:
+		return self.services, nil
 	default:
 		return nil, fmt.Errorf("No slice for name %s", slice_name)
 	}
+}
+
+func (self *State) getRefaxionsAsExtras() string {
+	var extras []string
+	if self.refaxions.length > 0 {
+		extras = self.refaxions.mapFunc(func(l *ListNode) string {
+			var r *Refaxion = l.NodeContent.(*Refaxion)
+			return fmt.Sprintf("{\"id\": %d, \"name\": \"%s\", \"value\": %d, \"min\": 0, \"max\": %d}", r.id, r.name, r.id, r.stock)
+		})
+	}
+	return strings.Join(extras, ",")
 }
 
 func (self *State) getItemsAsOptions(type_name string) string {
@@ -88,7 +128,7 @@ func (self *State) getItemsAsOptions(type_name string) string {
 	target_slice, err := self.getStateSliceByName(type_name)
 	if err != nil {
 		fmt.Printf("Error on getITemsAsOptions: %s\n", err.Error())
-		return "[]"
+		return ""
 	}
 	items_options = target_slice.mapFunc(func(c *ListNode) string {
 		return fmt.Sprintf("{\"name\": \"%s\", \"value\": %d}", c.NodeContent.toString(), c.NodeContent.getId())
@@ -184,6 +224,12 @@ func (self *State) loadState() error {
 		if err = self.loadStateSlice(VEHICLES_STATE); err != nil {
 			return err
 		}
+		if err = self.loadStateSlice(SERVICES_STATE); err != nil {
+			return err
+		}
+		if err = self.loadStateSlice(REFAXIONS_STATE); err != nil {
+			return err
+		}
 		return err
 	} else {
 		return fmt.Errorf("'%s' no such file or directory", SERVER_DATA)
@@ -208,6 +254,7 @@ func (self *State) loadStateSlice(type_name string) error {
 				type_state.append(new_item)
 			}
 		}
+		fmt.Printf("%s loaded: %d\n", type_name, type_state.length)
 		return err
 	} else {
 		fmt.Printf("No such file or directory: %s\n", load_path)
@@ -223,6 +270,15 @@ func (self *State) saveStateToLocalStorage() error {
 			return err
 		}
 		if err = self.saveStateSlice(CLIENTS_STATE); err != nil {
+			return err
+		}
+		if err = self.saveStateSlice(VEHICLES_STATE); err != nil {
+			return err
+		}
+		if err = self.saveStateSlice(SERVICES_STATE); err != nil {
+			return err
+		}
+		if err = self.saveStateSlice(REFAXIONS_STATE); err != nil {
 			return err
 		}
 
@@ -243,8 +299,41 @@ func (self *State) saveStateSlice(type_name string) error {
 		c = node.NodeContent
 		rstring += fmt.Sprintf("%s*", c.toRstring())
 	}
-	fmt.Printf("%s saved!\n", type_name)
 	return ioutil.WriteFile(self.composeSaveFile(type_name), []byte(rstring), 0755)
+}
+
+func (self *State) recalculateRefaxionStock(service *Service) {
+	refaxtions := []struct {
+		Id    uint32 `json:"id"`
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+		Min   int    `json:"min"`
+		Max   int    `json:"max"`
+	}{}
+
+	err := json.Unmarshal([]byte(service.refaxions_needed), &refaxtions)
+	if err != nil {
+		logFatal(err)
+	}
+
+	var current_refaction *Refaxion
+	for _, r := range refaxtions {
+		current_refaction = self.refaxions.exists(r.Name).(*Refaxion)
+		if current_refaction.stock < uint(r.Value) {
+			fmt.Printf("Waring: refaction %s doesnt have enought stock to cover demand of %d, services demands will be reduced\n", r.Name, r.Value)
+			r.Value = int(current_refaction.stock)
+			current_refaction.stock = 0
+		} else {
+			fmt.Printf("Stock of %s was changed from %d => ", r.Name, current_refaction.stock)
+			current_refaction.stock -= uint(r.Value)
+			fmt.Printf("%d\n", current_refaction.stock)
+		}
+	}
+	refaxions_need, err := json.Marshal(refaxtions)
+	if err != nil {
+		logFatal(err)
+	}
+	service.refaxions_needed = string(refaxions_need)
 }
 
 func (self *State) usernameExists(username string) bool {

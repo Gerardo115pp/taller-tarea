@@ -73,6 +73,27 @@ func (self *Server) createVehicle(request *http.Request) *Vehicle {
 	return new_vehicle
 }
 
+func (self *Server) createRefaxion(request *http.Request) *Refaxion {
+	new_refaxion := new(Refaxion)
+	new_refaxion.id = uint32(self.state.getNewItemId(REFAXIONS_STATE))
+	new_refaxion.name = request.FormValue("name")
+	new_refaxion.desc = request.FormValue("description")
+	new_refaxion.stock = uint(stringToInt(request.FormValue("stock")))
+	return new_refaxion
+}
+
+func (self *Server) createService(request *http.Request) *Service {
+	new_service := new(Service)
+	new_service.id = uint32(self.state.getNewItemId(SERVICES_STATE))
+	new_service.start = request.FormValue("start")
+	new_service.end = request.FormValue("end")
+	new_service.failure_desc = request.FormValue("failure")
+	new_service.vehicle = uint32(stringToInt(request.FormValue("vehicle")))
+	new_service.refaxions_needed = request.FormValue("extras")
+
+	return new_service
+}
+
 func (self *Server) createResponse(response string) []byte {
 	return []byte(fmt.Sprintf("{\"response\":\"%s\"}", response))
 }
@@ -250,6 +271,7 @@ func (self *Server) handleClients(response http.ResponseWriter, request *http.Re
 			fmt.Printf("with id '%s'...", string_id)
 			if string_id != "" {
 				var id uint32 = uint32(stringToInt(string_id))
+				var client *Client = self.state.getItemById(id, CLIENTS_STATE).(*Client)
 				err := self.state.deleteItemById(id, CLIENTS_STATE)
 				if err != nil {
 					fmt.Println("Failed: client wasnt found")
@@ -257,7 +279,8 @@ func (self *Server) handleClients(response http.ResponseWriter, request *http.Re
 					response.Write(self.bad_response)
 					return
 				}
-				self.state.saveStateSlice(CLIENTS_STATE)
+				self.state.deleteClientVehicleRelation(client)
+				self.state.saveStateToLocalStorage()
 				fmt.Print("Success!")
 				response.WriteHeader(200)
 				response.Write(self.ok)
@@ -354,6 +377,7 @@ func (self *Server) handleVehicles(response http.ResponseWriter, request *http.R
 			fmt.Printf("with id '%s'...", string_id)
 			if string_id != "" {
 				var id uint32 = uint32(stringToInt(string_id))
+				var vehicle *Vehicle = self.state.getItemById(id, VEHICLES_STATE).(*Vehicle)
 				err := self.state.deleteItemById(id, VEHICLES_STATE)
 				if err != nil {
 					fmt.Println("Failed: vehicle wasnt found")
@@ -361,7 +385,8 @@ func (self *Server) handleVehicles(response http.ResponseWriter, request *http.R
 					response.Write(self.bad_response)
 					return
 				}
-				self.state.saveStateSlice(VEHICLES_STATE)
+				self.state.deleteServiceVehicleRelation(vehicle)
+				self.state.saveStateToLocalStorage()
 				fmt.Print("Success!")
 				response.WriteHeader(200)
 				response.Write(self.ok)
@@ -461,8 +486,185 @@ func (self *Server) handleUsers(response http.ResponseWriter, request *http.Requ
 	}
 }
 
-func (self *Server) handleUserPatch(request *http.Request) error {
-	return nil
+func (self *Server) handleRefaxions(response http.ResponseWriter, request *http.Request) {
+
+	switch request.Method {
+	case http.MethodGet:
+		var target string = request.URL.Query().Get("id")
+		if target == "*" {
+			response.WriteHeader(200)
+			_, _ = response.Write([]byte(self.state.getItemsAsJson(REFAXIONS_STATE)))
+		} else {
+			target_id := stringToInt(target)
+			target_refaxion := self.state.getItemById(uint32(target_id), REFAXIONS_STATE).(*Refaxion)
+			if target_refaxion != nil {
+				response.WriteHeader(http.StatusOK)
+				_, _ = response.Write([]byte(target_refaxion.toJson()))
+			} else {
+				self.setBadResponse(response, request)
+			}
+		}
+	case http.MethodPost:
+		// Registering Users
+		var requester *User
+		requester, err := self.getRequestUser(request)
+		if err != nil {
+			self.setBadResponse(response, request)
+			return
+		}
+		// if request.ParseForm() != nil {
+		// 	os.Exit(0)
+		// }
+		// fmt.Printf("Data: %s\n", request.PostForm.Encode())
+		fmt.Printf("POST request for Refaxion %s by %s\n", request.FormValue("name"), requester.username)
+		var new_refaxion *Refaxion = self.createRefaxion(request)
+		self.state.addItemToState(new_refaxion, REFAXIONS_STATE)
+		self.state.saveStateToLocalStorage()
+		response.WriteHeader(200)
+		response.Write(self.ok)
+		fmt.Println("Success!")
+	case http.MethodPatch:
+		// update user data
+		// verifying user permissions
+		if self.isUserAdmin(request) {
+			var id uint32 = uint32(stringToInt(request.FormValue("id")))
+			var refaxion *Refaxion = self.state.getItemById(id, REFAXIONS_STATE).(*Refaxion)
+			fmt.Printf("PATCH request for user %s\n", refaxion.name)
+			self.updateRefaxion(refaxion, request)
+			self.state.saveStateToLocalStorage()
+			response.WriteHeader(200)
+			_, _ = response.Write(self.ok)
+		} else {
+			fmt.Println("Permission denied")
+			response.WriteHeader(http.StatusForbidden)
+			response.Write(self.composeResponse("Permission denied"))
+		}
+	case http.MethodDelete:
+		if self.isUserAdmin(request) {
+			var target_id uint32 = uint32(stringToInt(request.FormValue("id")))
+			fmt.Printf("DELETE request for refaxion %d\n", target_id)
+			if self.state.deleteItemById(target_id, REFAXIONS_STATE) == nil {
+				self.state.saveStateSlice(REFAXIONS_STATE)
+				response.WriteHeader(200)
+				response.Write(self.ok)
+			} else {
+				response.WriteHeader(406) // Not acceptable
+				response.Write(self.composeResponse("invalid id"))
+			}
+		}
+	case http.MethodOptions:
+		response.WriteHeader(200)
+		_, _ = response.Write(self.ok)
+	default:
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = response.Write(self.bad_response)
+	}
+}
+
+func (self *Server) handleServices(response http.ResponseWriter, request *http.Request) {
+
+	switch request.Method {
+	case http.MethodGet:
+		var target string = request.URL.Query().Get("id")
+		fmt.Printf("GET request for service %s...", target)
+		if target == "*" {
+			// request for all clients
+			response.WriteHeader(200)
+			response.Write([]byte(self.state.getItemsAsJson(SERVICES_STATE)))
+		} else {
+			// request for a single client, will return all its data
+			if target != "" {
+				var id uint32 = uint32(stringToInt(target))
+				var service Content = self.state.getItemById(id, SERVICES_STATE)
+				if service != nil {
+					fmt.Println("Succes!")
+					response.WriteHeader(200)
+					response.Write([]byte(service.toJson()))
+				} else {
+					// client doesnt exists
+					fmt.Println("Failed: user doesnt exists")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+				}
+			} else {
+				response.WriteHeader(406)
+				response.Write(self.bad_response)
+			}
+		}
+	case http.MethodPost:
+		// Registering Client
+		var new_service *Service = self.createService(request)
+		fmt.Printf("POST request for service %s...", new_service.toString())
+		if new_service.start != "" {
+			self.state.addItemToState(new_service, SERVICES_STATE)
+
+			// recalulating refaxions stock
+			self.state.recalculateRefaxionStock(new_service)
+
+			self.state.saveStateToLocalStorage()
+			fmt.Println("Success!")
+			response.WriteHeader(200)
+			response.Write(self.ok)
+		} else {
+			fmt.Println("Failed: start for service cannot be empty")
+			response.WriteHeader(406)
+			response.Write(self.bad_response)
+		}
+	case http.MethodPatch:
+		// UPDATE: restricted
+		fmt.Print("UPDATE request for service with id ")
+		var string_id string = request.FormValue("id")
+		fmt.Printf("'%s'...", string_id)
+		if string_id != "" {
+			var target_vehicle *Service = self.state.getItemById(uint32(stringToInt(string_id)), SERVICES_STATE).(*Service)
+			if target_vehicle == nil {
+				fmt.Println("Failed: vehicle wasnt found")
+				response.WriteHeader(404)
+				response.Write(self.bad_response)
+				return
+			}
+			self.updateService(target_vehicle, request)
+			self.state.saveStateToLocalStorage()
+			fmt.Println("Succes!")
+			response.WriteHeader(200)
+			response.Write(self.ok)
+		} else {
+			fmt.Println("Failed: key is not vaild")
+			response.WriteHeader(406)
+			response.Write(self.bad_response)
+		}
+	case http.MethodDelete:
+		// DELETE: restricted
+		fmt.Print("DELETE request for Service")
+		if self.isUserAdmin(request) {
+			var string_id string = request.FormValue("id")
+			fmt.Printf("with id '%s'...", string_id)
+			if string_id != "" {
+				var id uint32 = uint32(stringToInt(string_id))
+				err := self.state.deleteItemById(id, SERVICES_STATE)
+				if err != nil {
+					fmt.Println("Failed: service wasnt found")
+					response.WriteHeader(404)
+					response.Write(self.bad_response)
+					return
+				}
+				self.state.saveStateToLocalStorage()
+				fmt.Print("Success!")
+				response.WriteHeader(200)
+				response.Write(self.ok)
+			}
+		} else {
+			fmt.Println("Failed: user is not authorized.")
+			response.WriteHeader(401)
+			response.Write(self.bad_response)
+		}
+	case http.MethodOptions:
+		response.WriteHeader(200)
+		_, _ = response.Write(self.ok)
+	default:
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = response.Write(self.bad_response)
+	}
 }
 
 func (self *Server) handleType(response http.ResponseWriter, request *http.Request) {
@@ -501,20 +703,23 @@ func (self *Server) processTypeData(data []byte) []byte {
 	if err != nil {
 		logFatal(err)
 	}
-	var processable_string string = regex.FindString(string_data)
-	if processable_string != "" {
+	var processable_string string
+	for processable_string = regex.FindString(string_data); processable_string != ""; processable_string = regex.FindString(string_data) {
 		processable_string = strings.ReplaceAll(processable_string, "@", "")
+		fmt.Printf("Processing type dynamic field '@%s@'\n", processable_string)
 
 		var options string = "[]"
 		switch processable_string {
 		case "clients":
 			options = self.state.getItemsAsOptions(CLIENTS_STATE)
+		case "vehicles":
+			options = self.state.getItemsAsOptions(VEHICLES_STATE)
+		case "refaxions":
+			options = self.state.getRefaxionsAsExtras()
 		}
 		string_data = strings.Replace(string_data, fmt.Sprintf("\"@%s@\"", processable_string), options, 1)
 	}
-	fmt.Println(string_data)
 	return []byte(string_data)
-
 }
 
 func (self *Server) setBadResponse(response http.ResponseWriter, r *http.Request) {
@@ -549,6 +754,13 @@ func (self *Server) searchItem(response http.ResponseWriter, request *http.Reque
 			target = self.state.getItemsByToStringPrefix(search_value, USERS_STATE)
 		case "clients":
 			target = self.state.getItemsByToStringPrefix(search_value, CLIENTS_STATE)
+		case VEHICLES_STATE:
+			target = self.state.getItemsByToStringPrefix(search_value, VEHICLES_STATE)
+		case REFAXIONS_STATE:
+			target = self.state.getItemsByToStringPrefix(search_value, REFAXIONS_STATE)
+		case SERVICES_STATE:
+			target = self.state.getItemsByToStringPrefix(search_value, SERVICES_STATE)
+
 		default:
 			fmt.Println("Invalid type ", search_type)
 			response.WriteHeader(501)
@@ -598,7 +810,6 @@ func (self *Server) updateUser(user *User, request *http.Request) {
 	if fake_user.group != user.group {
 		user.group = fake_user.group
 	}
-	return
 }
 
 func (self *Server) updateClient(client *Client, request *http.Request) {
@@ -615,7 +826,7 @@ func (self *Server) updateClient(client *Client, request *http.Request) {
 }
 
 func (self *Server) updateVehicle(vehicle *Vehicle, request *http.Request) {
-	var fake_vehicle *Vehicle = self.createVehicle(request)
+	var fake_vehicle = self.createVehicle(request)
 	if fake_vehicle.plates != vehicle.plates && fake_vehicle.plates != "" {
 		vehicle.plates = fake_vehicle.plates
 	}
@@ -628,8 +839,40 @@ func (self *Server) updateVehicle(vehicle *Vehicle, request *http.Request) {
 	if fake_vehicle.release != vehicle.release && fake_vehicle.release != "" {
 		vehicle.release = fake_vehicle.release
 	}
-	if fake_vehicle.client >= 0 && fake_vehicle.client < uint32(self.state.clients.length) {
+	if fake_vehicle.client < uint32(self.state.clients.length) {
 		vehicle.client = fake_vehicle.client
+	}
+}
+
+func (self *Server) updateService(service *Service, request *http.Request) {
+	fake_service := self.createService(request)
+	if fake_service.start != service.start && fake_service.start != "" {
+		service.start = fake_service.start
+	}
+	if fake_service.end != service.end && fake_service.end != "" {
+		service.end = fake_service.end
+	}
+	if fake_service.failure_desc != service.failure_desc && fake_service.failure_desc != "" {
+		service.failure_desc = fake_service.failure_desc
+	}
+	if fake_service.vehicle < uint32(self.state.vehicles.length) {
+		service.vehicle = fake_service.vehicle
+	}
+	if fake_service.refaxions_needed != service.refaxions_needed && fake_service.refaxions_needed != "" {
+		service.refaxions_needed = fake_service.refaxions_needed
+	}
+}
+
+func (self *Server) updateRefaxion(refaxion *Refaxion, request *http.Request) {
+	fake_refaxion := self.createRefaxion(request)
+	if fake_refaxion.name != refaxion.name && fake_refaxion.name != "" {
+		refaxion.name = fake_refaxion.name
+	}
+	if fake_refaxion.desc != refaxion.desc && fake_refaxion.desc != "" {
+		refaxion.desc = fake_refaxion.desc
+	}
+	if fake_refaxion.stock != refaxion.stock {
+		refaxion.stock = fake_refaxion.stock
 	}
 }
 
@@ -652,19 +895,18 @@ func (self *Server) run() {
 		fmt.Println("WARNING: server state or types couldnt be loaded couldnt be loaded!")
 	}
 
-	fmt.Printf("Users loaded: %d\n", self.state.users.length)
-	fmt.Printf("Clients loaded: %d\n", self.state.clients.length)
-
 	http.HandleFunc("/users", self.enableCors(self.verifyAuthentication(self.handleUsers)))
 	http.HandleFunc("/clients", self.enableCors(self.verifyAuthentication(self.handleClients)))
 	http.HandleFunc("/vehicles", self.enableCors(self.verifyAuthentication(self.handleVehicles)))
+	http.HandleFunc("/refaxions", self.enableCors(self.verifyAuthentication(self.handleRefaxions)))
+	http.HandleFunc("/services", self.enableCors(self.verifyAuthentication(self.handleServices)))
 	http.HandleFunc("/login", self.enableCors(self.logUser))
 	http.HandleFunc("/type", self.enableCors(self.verifyAuthentication(self.handleType)))
 	http.HandleFunc("/search", self.enableCors(self.verifyAuthentication(self.searchItem)))
 
 	fmt.Printf("Server running on 127.0.0.1%s\n", self.getPortStr())
-	if http.ListenAndServe(self.getPortStr(), nil) != nil {
-		panic(fmt.Errorf("Server error, sorry for the inconvinence"))
+	if err := http.ListenAndServe(self.getPortStr(), nil); err != nil {
+		panic(err.Error())
 	}
 }
 

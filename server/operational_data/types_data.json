@@ -87,6 +87,54 @@
                 ]
             }
         ]
+    },
+    "refaxions": {
+        "name": "refaxions",
+        "allow-change-from": 0,
+        "fields": [
+            {
+                "field-name": "name",
+                "type": "text"
+
+            },
+            {
+                "field-name": "description",
+                "type": "text"
+            },
+            {
+                "field-name": "stock",
+                "type": "number"
+            }
+        ]
+    },
+    "services": {
+        "name": "services",
+        "allow-change-from": 0,
+        "fields": [
+            {
+                "field-name": "start",
+                "type": "date"
+            },
+            {
+                "field-name": "end",
+                "type": "date"
+            },
+            {
+                "field-name": "failure",
+                "type": "text"
+            },
+            {
+                "field-name": "vehicle",
+                "type": "select",
+                "options": [
+                    "@vehicles@"
+                ]
+            }
+        ], 
+        "extras": [
+            "@refaxions@"
+        ]
     }
+
 }
 

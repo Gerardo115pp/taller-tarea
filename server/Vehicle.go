@@ -24,7 +24,7 @@ func (self *Vehicle) getId() uint32 {
 
 func (self *Vehicle) load(rstring string) error {
 	var vehicle_values []string = strings.Split(rstring, "|")
-	if len(vehicle_values) == 4 {
+	if len(vehicle_values) == 6 {
 		self.id = uint32(stringToInt(vehicle_values[0]))
 		self.plates = vehicle_values[1]
 		self.brand = vehicle_values[2]

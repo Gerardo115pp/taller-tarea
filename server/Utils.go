@@ -6,6 +6,15 @@ import (
 	"strconv"
 )
 
+func clamp(x int, min int, max int) int {
+	if x > max {
+		return x
+	} else if x < min {
+		return min
+	}
+	return x
+}
+
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)

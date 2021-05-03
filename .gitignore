@@ -5,3 +5,5 @@ server/operational_data/*.txt
 /**/Testing/
 *.py
 *.ipynb
+go.mod
+go.sum
